@@ -27,7 +27,9 @@ namespace API_LuegoPago.Services
                 SubtractTimeBetweenAppointments(scheduledAppointments, ref totalMinutesAvailable);
                 SubtractTimeAfterLastAppointment(scheduledAppointments, ref totalMinutesAvailable);
 
-                result.Messages.Add($"Total de espacios disponibles: {totalMinutesAvailable} minutos para el día {day}");
+                int totalSpacesAvailable = totalMinutesAvailable / 30;
+
+                result.Messages.Add($"El total de espacios disponibles para el día {day} es de: {totalSpacesAvailable} ");
                 result.TotalMinutesAvailable = Math.Max(totalMinutesAvailable, 0);
 
                 return result;
