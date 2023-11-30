@@ -25,12 +25,12 @@ namespace API_LuegoPago.DataAccess.Repositories
                 var appointmentsForDay = appointments.Where(appointment => appointment.Day.ToLower() == day.ToLower()).ToList();
 
                 return appointmentsForDay;
+
             } catch (Exception ex) 
             {
                 Console.WriteLine(ex.Message);
                 throw;
             }
-            
             
         }
 

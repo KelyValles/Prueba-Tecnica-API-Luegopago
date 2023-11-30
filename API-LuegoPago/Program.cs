@@ -1,4 +1,5 @@
 using API_LuegoPago.DataAccess.Repositories;
+using API_LuegoPago.Services;
 using API_LuegoPago.Services.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,6 +12,7 @@ builder.Services.AddScoped<IAppointmentRepository>(provider =>
     return new AppointmentRepository(jsonFilePath);
 });
 
+builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
