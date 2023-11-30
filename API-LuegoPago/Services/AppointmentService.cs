@@ -1,4 +1,5 @@
-﻿using API_LuegoPago.Services.Interfaces;
+﻿using API_LuegoPago.Models;
+using API_LuegoPago.Services.Interfaces;
 using System.Globalization;
 
 namespace API_LuegoPago.Services
@@ -12,92 +13,28 @@ namespace API_LuegoPago.Services
             _appointmentRepository = appointmentRepository;
         }
 
-        public int CalculateAvailableSpaces(string day)
+        public AvailableSpacesResult CalculateAvailableSpaces(string day)
         {
+            var result = new AvailableSpacesResult();
             try
             {
-                //obtengo los datos filtrados por día
-                var scheduledAppointments = _appointmentRepository.GetAppointmentsByDay(day);
-                Console.WriteLine($"Citas programadas para el día {day}: {scheduledAppointments.Count}");
+                var scheduledAppointments = GetFilteredAppointments(day);
 
-                //la filtro de acuerdo al horario
-                scheduledAppointments = scheduledAppointments
-                .Where(appointment =>
-                    DateTime.ParseExact(appointment.Hour, "HH:mm", CultureInfo.InvariantCulture).TimeOfDay >= TimeSpan.Parse("09:00") &&
-                    DateTime.ParseExact(appointment.Hour, "HH:mm", CultureInfo.InvariantCulture).AddMinutes(appointment.Duration).TimeOfDay <= TimeSpan.Parse("17:00"))
-                .ToList();
-
-                //ordenos los datos
-                scheduledAppointments.Sort((a1, a2) => DateTime.ParseExact(a1.Hour, "HH:mm", CultureInfo.InvariantCulture)
-                .CompareTo(DateTime.ParseExact(a2.Hour, "HH:mm", CultureInfo.InvariantCulture)));
-
-                //traigo el total de min durante horario
                 int totalMinutesAvailable = CalculateTotalMinutesAvailable();
-                Console.WriteLine($"Minutos totales disponibles antes de restar citas: {totalMinutesAvailable}");
 
-                //filtro entre el opening y la primera cita
-                var firstAppointment = scheduledAppointments.FirstOrDefault();
-                if (firstAppointment != null)
-                {
-                    var openingTime = TimeSpan.Parse("09:00");
-                    var firstAppointmentStartTime = DateTime.ParseExact(firstAppointment.Hour, "HH:mm", CultureInfo.InvariantCulture).TimeOfDay;
+                SubtractTimeBeforeFirstAppointment(scheduledAppointments, ref totalMinutesAvailable);
+                SubtractDurationOfAppointments(scheduledAppointments, ref totalMinutesAvailable);
+                SubtractTimeBetweenAppointments(scheduledAppointments, ref totalMinutesAvailable);
+                SubtractTimeAfterLastAppointment(scheduledAppointments, ref totalMinutesAvailable);
 
-                    int spaceBeforeFirstAppointment = (int)(firstAppointmentStartTime - openingTime).TotalMinutes;
-                    
-                    if (spaceBeforeFirstAppointment < 30)
-                    {
-                        totalMinutesAvailable -= spaceBeforeFirstAppointment;
-                    }
-                }
+                result.Messages.Add($"Total de espacios disponibles: {totalMinutesAvailable} minutos para el día {day}");
+                result.TotalMinutesAvailable = Math.Max(totalMinutesAvailable, 0);
 
-                foreach (var currentAppointment in scheduledAppointments)
-                {
-                    totalMinutesAvailable -= currentAppointment.Duration;
-                }
-
-
-                //obtengo el espacio entre cita y cita
-                for (int i = 0; i < scheduledAppointments.Count - 1; i++)
-                {
-                    var currentAppointment = scheduledAppointments[i];
-                    var nextAppointment = scheduledAppointments[i + 1];
-
-                    var currentEndTime = DateTime.ParseExact(currentAppointment.Hour, "HH:mm", CultureInfo.InvariantCulture).AddMinutes(currentAppointment.Duration);
-                    var nextStartTime = DateTime.ParseExact(nextAppointment.Hour, "HH:mm", CultureInfo.InvariantCulture);
-
-                    int spaceBetweenAppointments = (int)(nextStartTime - currentEndTime).TotalMinutes;
-
-                    if (spaceBetweenAppointments < 30)
-                    {
-                        totalMinutesAvailable -= spaceBetweenAppointments;
-                    }
-
-                }
-
-                
-
-                //filtro entre la última cita y el closing
-                var lastAppointment = scheduledAppointments.LastOrDefault();
-                if (lastAppointment != null)
-                {
-                    var closingTime = TimeSpan.Parse("17:00");
-                    var lastAppointmentStartTime = DateTime.ParseExact(lastAppointment.Hour, "HH:mm", CultureInfo.InvariantCulture).AddMinutes(lastAppointment.Duration).TimeOfDay;
-
-                    int spaceLastAppointment = (int)(closingTime - lastAppointmentStartTime).TotalMinutes;
-
-                    if (spaceLastAppointment < 30)
-                    {
-                        totalMinutesAvailable -= spaceLastAppointment;
-                    }
-                }
-
-                Console.WriteLine($"Minutos totales disponibles después de restar citas: {totalMinutesAvailable}");
-
-                return Math.Max(totalMinutesAvailable, 0);
-
-            } catch (Exception ex)
+                return result;
+            }
+            catch (Exception ex)
             {
-                Console.WriteLine($"Error al calcular espacios disponibles: {ex.Message}");
+                result.Messages.Add($"Error al calcular espacios disponibles: {ex.Message}");
                 throw;
             }
         }
@@ -109,6 +46,83 @@ namespace API_LuegoPago.Services
             TimeSpan WorkingHours = closingTime-openingTime;
 
             return (int)WorkingHours.TotalMinutes;
+        }
+
+        private List<Appointment> GetFilteredAppointments(string day)
+        {
+            var scheduledAppointments = _appointmentRepository.GetAppointmentsByDay(day);
+            Console.WriteLine($"Citas programadas para el día {day}: {scheduledAppointments.Count}");
+
+            return scheduledAppointments
+                .Where(appointment =>
+                    WorkingHours(appointment))
+                .OrderBy(appointment => DateTime.ParseExact(appointment.Hour, "HH:mm", CultureInfo.InvariantCulture))
+                .ToList();
+        }
+
+        private void SubtractTimeBeforeFirstAppointment(List<Appointment> appointments, ref int totalMinutesAvailable)
+        {
+            var firstAppointment = appointments.FirstOrDefault();
+            if (firstAppointment != null)
+            {
+                var openingTime = TimeSpan.Parse("09:00");
+                var firstAppointmentStartTime = DateTime.ParseExact(firstAppointment.Hour, "HH:mm", CultureInfo.InvariantCulture).TimeOfDay;
+
+                int spaceBeforeFirstAppointment = (int)(firstAppointmentStartTime - openingTime).TotalMinutes;
+
+                if (spaceBeforeFirstAppointment < 30)
+                {
+                    totalMinutesAvailable -= spaceBeforeFirstAppointment;
+                }
+            }
+        }
+
+        private void SubtractDurationOfAppointments(List<Appointment> appointments, ref int totalMinutesAvailable)
+        {
+            totalMinutesAvailable -= appointments.Sum(appointment => appointment.Duration);
+        }
+
+        private void SubtractTimeBetweenAppointments(List<Appointment> appointments, ref int totalMinutesAvailable)
+        {
+            for (int i = 0; i < appointments.Count - 1; i++)
+            {
+                var currentAppointment = appointments[i];
+                var nextAppointment = appointments[i + 1];
+
+                var currentEndTime = DateTime.ParseExact(currentAppointment.Hour, "HH:mm", CultureInfo.InvariantCulture).AddMinutes(currentAppointment.Duration).TimeOfDay;
+                var nextStartTime = DateTime.ParseExact(nextAppointment.Hour, "HH:mm", CultureInfo.InvariantCulture).TimeOfDay;
+
+                int spaceBetweenAppointments = (int)(nextStartTime - currentEndTime).TotalMinutes;
+
+                if (spaceBetweenAppointments < 30)
+                {
+                    totalMinutesAvailable -= spaceBetweenAppointments;
+                }
+            }
+        }
+
+        private void SubtractTimeAfterLastAppointment(List<Appointment> appointments, ref int totalMinutesAvailable)
+        {
+            var lastAppointment = appointments.LastOrDefault();
+            if (lastAppointment != null)
+            {
+                var closingTime = TimeSpan.Parse("17:00");
+                var lastAppointmentStartTime = DateTime.ParseExact(lastAppointment.Hour, "HH:mm", CultureInfo.InvariantCulture).AddMinutes(lastAppointment.Duration).TimeOfDay;
+
+                int spaceLastAppointment = (int)(closingTime - lastAppointmentStartTime).TotalMinutes;
+
+                if (spaceLastAppointment < 30)
+                {
+                    totalMinutesAvailable -= spaceLastAppointment;
+                }
+            }
+        }
+
+        private bool WorkingHours(Appointment appointment)
+        {
+            var startTime = DateTime.ParseExact(appointment.Hour, "HH:mm", CultureInfo.InvariantCulture).TimeOfDay;
+            var endTime = startTime.Add(TimeSpan.FromMinutes(appointment.Duration));
+            return startTime >= TimeSpan.Parse("09:00") && endTime <= TimeSpan.Parse("17:00");
         }
     }
 }

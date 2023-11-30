@@ -2,6 +2,6 @@
 {
     public interface IAppointmentService
     {
-        int CalculateAvailableSpaces(string day);
+        AvailableSpacesResult CalculateAvailableSpaces(string day);
     }
 }
